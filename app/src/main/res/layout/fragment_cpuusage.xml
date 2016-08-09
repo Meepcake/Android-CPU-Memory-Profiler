@@ -5,12 +5,6 @@
     android:layout_height="match_parent"
     android:background="@android:drawable/gallery_thumb">
 
-    <TextView android:id="@+id/text"
-        android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:gravity="center_vertical|center_horizontal"
-        android:textAppearance="?android:attr/textAppearanceMedium"
-        android:text="@string/cpu_usage"/>
-
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dip"
@@ -30,24 +24,11 @@
             android:textAppearance="?android:attr/textAppearanceMedium"
             android:text="No items."/>
 
-        <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="View CPU Usage"
-            android:id="@+id/viewCPU"
-            android:layout_alignParentBottom="true"
-            android:layout_alignParentLeft="true"
-            android:layout_alignParentStart="true"
-            android:layout_gravity="left|bottom" />
-
-        <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Stop"
-            android:id="@+id/stop_cpu"
-            android:layout_alignParentBottom="true"
-            android:layout_alignParentLeft="true"
-            android:layout_alignParentStart="true"
-            android:layout_gravity="right|bottom" />
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chart"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingBottom="16dp"
+            />
     </FrameLayout>
 </LinearLayout>

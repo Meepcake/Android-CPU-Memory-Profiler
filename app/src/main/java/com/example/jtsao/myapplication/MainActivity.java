@@ -5,9 +5,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Message;
+import android.provider.Settings;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentManager;
@@ -17,19 +17,27 @@ import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.support.v4.view.ViewPager;
 import android.os.Bundle;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
-import android.widget.ListView;
 import android.widget.TextView;
+
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+
+import java.util.List;
+import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.utils.ColorTemplate;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
-import java.util.List;
 
 public class MainActivity extends FragmentActivity {
     static String TAG = "Main Activity";
@@ -72,9 +80,10 @@ public class MainActivity extends FragmentActivity {
 
     }
 
-    /*
-    Custom class extends FragmentPagerAdapter
-     */
+    /**
+     * Custom class extends FragmentPagerAdapter
+     *
+     **/
     public static class MyAdapter extends FragmentPagerAdapter{
         public MyAdapter(FragmentManager fm){
             super(fm);
@@ -121,6 +130,7 @@ public class MainActivity extends FragmentActivity {
 
         /**
          * When creating, retrieve this instance's number from its arguments.
+         *
          */
         @Override
         public void onCreate(Bundle savedInstanceState) {
@@ -131,15 +141,15 @@ public class MainActivity extends FragmentActivity {
         /**
          * The Fragment's UI is just a simple text view showing its
          * instance number.
+         *
          */
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container,
                                  Bundle savedInstanceState) {
-
             View v;
 
             if (mNum == 0){
-                Log.i(TAG,"Loading Fragment 0");
+                Log.i(TAG,"Loading System Overview Fragment");
 
                 TextView brandText,modelText,osText,sdkText,manufacturerText,archText,nameText;
 
@@ -154,7 +164,6 @@ public class MainActivity extends FragmentActivity {
                 sdkText = (TextView) v.findViewById(R.id.SDK_text);
                 manufacturerText = (TextView) v.findViewById(R.id.manufacturer_text);
 
-
                 // Device Name
                 Log.i(TAG, "Brand : " + String.valueOf(Build.BRAND));
                 brandText.setText("Brand : " + String.valueOf(Build.BRAND));
@@ -164,11 +173,11 @@ public class MainActivity extends FragmentActivity {
 
                 // OS arch
                 Log.i(TAG, "OS Arch : " + System.getProperty("os.Arch"));
-                archText.setText("OS Arch : " + System.getProperty("os.Arch"));
+                archText.setText("OS Arch : " + String.valueOf(Build.DISPLAY));
 
                 // OS name
                 Log.i(TAG, "OS Name : " + System.getProperty("os.Name"));
-                nameText.setText("OS Name : " + System.getProperty("os.Name"));
+                nameText.setText("OS Name : " + String.valueOf(Build.ID));
 
                 // OS version
                 Log.i(TAG, "OS Version : " + System.getProperty("os.version"));
@@ -183,114 +192,104 @@ public class MainActivity extends FragmentActivity {
                 manufacturerText.setText("Manufacturer : " + String.valueOf(Build.MANUFACTURER));
 
             } else if (mNum == 1){
-                Log.i(TAG,"Loading Fragment 1");
+                Log.i(TAG,"Loading CPU Usage Fragment");
 
-                Button cpuButton,stopCPU;
-
+                // Load View.
                 v = inflater.inflate(R.layout.fragment_cpuusage, container, false);
 
-                // Grab cpu/stop button
-                cpuButton = (Button) v.findViewById(R.id.viewCPU);
-                stopCPU = (Button) v.findViewById(R.id.stop_cpu);
+                // Initialize Chart
+                final LineChart mChart = createChart(v.findViewById(R.id.chart), 100f);
 
-                final List<String> resultList = new ArrayList<>();
+                // Create Thread to pass data to chart.
+                new Thread(new Runnable() {
 
-                final ArrayAdapter<String> adapter = new ArrayAdapter<String>(getActivity(),
-                        android.R.layout.simple_list_item_1,resultList);
+                    boolean isRunning = true;
 
-                setListAdapter(adapter);
-
-                // Thread Handles Here
-                final Handler handler = new Handler() {
                     @Override
-                    public void handleMessage(Message msg) {
-                        Bundle bundle = msg.getData();
-                        String string = bundle.getString("cpu");
-                        resultList.add(string);
-                        adapter.notifyDataSetChanged();
-                        // Update ListView Here.
-                        Log.i(TAG, "CPU : " + string);
-                    }
-                };
+                    public void run() {
+                        List<Float> movingAvg = new ArrayList<>();
 
-                // Set up Button Listeners Here.
-                stopCPU.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        Log.i(TAG, "Stop CPU button clicked.");
-                    }
-                });
+                        while (isRunning){
 
-                cpuButton.setOnClickListener(new View.OnClickListener() {
-                    public void onClick(View v) {
-                        Log.i(TAG, "View CPU button clicked.");
-                        // TODO Auto-generated method stub
+                            // Moving Average...
+                            float movingFrameSize = 7;
+                            float result = 0;
+                            float weight;
+                            float cpuUsage;
+                            float weightedTotal = ((movingFrameSize * (movingFrameSize + 1)) / 2);
 
-                        // New Thread Created
-                        Thread cpuThread = new Thread(){
+                            // Fill up array first//add on to last spot..
+                            while (movingAvg.size() < movingFrameSize) {
+                                do {
+                                    cpuUsage = readCPUUsage(5, 200);
+                                } while (Float.isNaN(cpuUsage) || cpuUsage == 0);
+                                movingAvg.add(cpuUsage);
+                            }
+                            // Sum all values and get result.
+                            for (int i = 0; i < movingAvg.size(); i++) {
+                                weight = ((float) (i + 1) / weightedTotal);
+                                result += movingAvg.get(i) * weight;
+                            }
 
-                            volatile boolean isRunning = true; // Boolean to stop thread.
+                            // Pop first value off.
+                            movingAvg.remove(0);
 
-                            // New Runnable Created
-                            public void run() {
-                                List<String> movingAvg = new ArrayList<>();
+                            final float cpu = result * 100;
 
-                                // Need to add logic to break out of thread here.
-                                while (isRunning) {
-                                    Log.i(TAG, "CPU Thread Is Running");
-                                    Message msg = handler.obtainMessage();
-                                    Bundle bundle = new Bundle();
-
-                                    // Moving Average...
-                                    float movingFrameSize = 7;
-                                    float result = 0;
-                                    float weight;
-                                    float cpuUsage;
-                                    float weightedTotal = ((movingFrameSize * (movingFrameSize + 1)) / 2);
-
-                                    // Fill up array first//add on to last spot..
-                                    while (movingAvg.size() < movingFrameSize) {
-                                        do {
-                                            cpuUsage = readCPUUsage(5, 200);
-                                        } while (Float.isNaN(cpuUsage) || cpuUsage == 0);
-                                        movingAvg.add(Float.toString(cpuUsage));
-                                    }
-                                    // Sum all values and get result.
-                                    for (int i = 0; i < movingAvg.size(); i++) {
-                                        weight = ((float) (i + 1) / weightedTotal);
-                                        result += Float.parseFloat(movingAvg.get(i)) * weight;
-                                    }
-
-                                    // Pop first value off.
-                                    movingAvg.remove(0);
-
-                                    String cpu = Float.toString(result * 100);
-
-                                    bundle.putString("cpu", cpu);
-                                    msg.setData(bundle);
-                                    handler.sendMessage(msg);
-
+                            getActivity().runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    addEntry(mChart,cpu, "CPU Usage");
                                 }
-                                Log.i(TAG, "CPU Thread Stopped");
+                            });
+
+                            try {
+                                Thread.sleep(100);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
                             }
 
-                            public void setRunning(boolean running){
-                                this.isRunning = running;
-                            }
-                        };
-
-                        cpuThread.start();
+                        }
                     }
-                });
+
+                }).start();
 
             } else if (mNum == 2) {
                 Log.i(TAG, "Loading Fragment 2");
 
                 v = inflater.inflate(R.layout.fragment_memoryusage, container, false);
 
+                float totalMem = findTotalMemory();
+
+                final LineChart mChart = createChart(v.findViewById(R.id.chart), totalMem);
+
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+
+                        while (true){
+
+                            final float memoryUsage = (float) readMemUsage();
+
+                            getActivity().runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    addEntry(mChart,memoryUsage, "Memory Usage");
+                                }
+                            });
+
+                            try {
+                                Thread.sleep(500);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+
+                        }
+                    }
+                }).start();
 
             } else {
-                Log.i(TAG, "Somehow got here... shoulddnt get here");
+                Log.i(TAG, "Somehow got here... shouldnt get here");
 
                 v = inflater.inflate(R.layout.fragment_pager_list, container, false);
             }
@@ -307,6 +306,112 @@ public class MainActivity extends FragmentActivity {
 
     }
 
+    /**
+     * Create LineChart
+     *
+     * Input: View to draw chart to..
+     *        Float Y max of chart
+     *
+     * Returns: LineChart
+     *
+     */
+    private static LineChart createChart(android.view.View v, float ymax ){
+        LineChart chart = (LineChart) v;
+            chart.setDescription("");
+            chart.setNoDataTextDescription("No Data Right Meow");
+            chart.setHighlightEnabled(true);
+            chart.setTouchEnabled(false);
+            chart.setDragEnabled(true);
+            chart.setScaleEnabled(true);
+            chart.setDrawGridBackground(true);
+            chart.setPinchZoom(true);
+            chart.setBackgroundColor(Color.LTGRAY);
+
+        // Create empty data set and assign to mChart
+        LineData data = new LineData();
+
+        chart.setData(data);
+
+        Legend l = chart.getLegend();
+            l.setForm(Legend.LegendForm.LINE);
+            l.setTextColor(Color.WHITE);
+
+        XAxis xl = chart.getXAxis();
+            xl.setTextColor(Color.WHITE);
+            xl.setDrawGridLines(false);
+            xl.setAvoidFirstLastClipping(true);
+
+        YAxis yl = chart.getAxisLeft();
+            yl.setTextColor(Color.WHITE);
+            yl.setAxisMaxValue(ymax);
+            yl.setDrawGridLines(true);
+
+        YAxis yl2 = chart.getAxisRight();
+            yl2.setEnabled(false);
+
+        return chart;
+    }
+
+    /**
+     * Add Entry to Chart
+     *
+     */
+    private static void addEntry(LineChart mChart, float value, String setName){
+        LineData data = mChart.getData();
+
+        if (data != null) {
+            LineDataSet set = data.getDataSetByIndex(0);
+
+            if (set == null){
+                set = createSet(setName);
+                data.addDataSet(set);
+            }
+            data.addXValue("");
+            data.addEntry(
+                    new Entry(value, set.getEntryCount()),0
+            );
+
+            // notify chart data has changed
+            mChart.notifyDataSetChanged();
+
+            // limit number of visible entries
+            mChart.setVisibleXRange(6);
+
+            // scroll to latest entry
+            mChart.moveViewToX(data.getXValCount()-7);
+
+        }
+    }
+
+    /**
+     * Function to create LineDataSet based on name.
+     *
+     * Returns: LineDataSet type
+     *
+     */
+    private static LineDataSet createSet(String dataName){
+
+        LineDataSet set = new LineDataSet(null, dataName);
+            set.setDrawCubic(true);
+            set.setCubicIntensity(0.2f);
+            set.setAxisDependency(YAxis.AxisDependency.LEFT);
+            set.setColor(ColorTemplate.getHoloBlue());
+            set.setCircleColor(ColorTemplate.getHoloBlue());
+            set.setLineWidth(2f);
+            set.setCircleSize(4f);
+            set.setFillAlpha(65);
+            set.setFillColor(ColorTemplate.getHoloBlue());
+            set.setHighLightColor(Color.rgb(244,117,177));
+            set.setValueTextColor(Color.BLUE);
+            set.setValueTextSize(10f);
+
+        return set;
+    }
+
+    /**
+     * Code that generates the notification on top bar
+     *
+     */
     protected void makeNotification(){
         NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(this)
             .setSmallIcon(R.drawable.mudkip_icon)
@@ -346,13 +451,39 @@ public class MainActivity extends FragmentActivity {
         mNotificationManager.cancel(notifyId);
     }
 
-    /*
+    private static float findTotalMemory(){
+        RandomAccessFile reader = null;
+        String load;
+        String[] toks;
+        double totalMemory = 0;
+
+        try {
+            reader = new RandomAccessFile("/proc/meminfo", "r");
+            load = reader.readLine();
+
+            toks = load.split(" +");
+            totalMemory = Double.parseDouble(toks[1]);
+
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        } finally {
+            try {
+                reader.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return (float)totalMemory;
+    }
+
+    /**
     Function to grab CPU usage from /proc/stat
 
     Output: double freeMemory  | Mem Usage
 
      */
-    private double readMemUsage() {
+    private static double readMemUsage() {
         try {
             // vars.
             String load;
@@ -386,7 +517,7 @@ public class MainActivity extends FragmentActivity {
     }
 
 
-    /*
+    /**
     Function to grab CPU usage from /proc/stat
 
     Input: int sampleSize | Amount of samples to take before returning.
